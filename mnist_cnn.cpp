@@ -14,6 +14,11 @@
  */
 #define MLPACK_ENABLE_ANN_SERIALIZATION
 #include <mlpack.hpp>
+#include <cstring>
+#include <thread>
+#include <cstdlib>
+#include <chrono> 
+#include <ctime>
 
 #if ((ENS_VERSION_MAJOR < 2) || ((ENS_VERSION_MAJOR == 2) && (ENS_VERSION_MINOR < 13)))
   #error "need ensmallen version 2.13.0 or later"
@@ -22,6 +27,13 @@
 using namespace arma;
 using namespace mlpack;
 using namespace std;
+
+void terminateProcess(const char* processName) {
+    char command[100];
+    std::strcpy(command, "pkill -f ");
+    std::strcat(command, processName);
+    std::system(command);
+}
 
 Row<size_t> getLabels(const mat& predOut)
 {
@@ -35,13 +47,32 @@ Row<size_t> getLabels(const mat& predOut)
 
 int main()
 {
+  // starting the device tracking
+  std::thread bash_thread([](){
+      std::system("../device_check.sh");
+  });
+
+  bash_thread.detach();
+
+  // Get the current time
+  auto start_time = std::chrono::system_clock::now();
+  auto start_millis = std::chrono::duration_cast<std::chrono::milliseconds>(start_time.time_since_epoch()).count();
+  std::time_t current_time = std::chrono::system_clock::to_time_t(start_time);
+
+  // Format the current time as a string
+  char start_time_str[100];
+  std::strftime(start_time_str, sizeof(start_time_str), "%Y-%m-%d %H:%M:%S", std::localtime(&current_time));
+
+  // Print the current time including milliseconds
+  std::cout << "Start time with milliseconds: " << start_time_str << "." << start_millis % 1000 << std::endl;
+
   // Dataset is randomly split into validation
   // and training parts with following ratio.
-  constexpr double RATIO = 0.1;
+  constexpr double RATIO = 0.2;
 
   // Allow 60 passes over the training data, unless we are stopped early by
   // EarlyStopAtMinLoss.
-  const int EPOCHS = 60;
+  const int EPOCHS = 25;
 
   // Number of data points in each iteration of SGD.
   const int BATCH_SIZE = 50;
@@ -57,7 +88,7 @@ int main()
 
   // The original file can be downloaded from
   // https://www.kaggle.com/c/digit-recognizer/data
-  data::Load("../data/fashion-mnist_train.csv", dataset, true);
+  data::Load("./digit-recognizer/train.csv", dataset, true);
 
   // Split the dataset into training and validation sets.
   mat train, valid;
@@ -194,13 +225,36 @@ int main()
             << "\t valid = " << validAccuracy << "%" << endl;
 
   data::Save("model.bin", "model", model, false);
+  
+  // Get the end time
+  auto end_time = std::chrono::system_clock::now();
+  auto end_millis = std::chrono::duration_cast<std::chrono::milliseconds>(end_time.time_since_epoch()).count();
 
+  std::time_t full_end_time = std::chrono::system_clock::to_time_t(end_time);
+
+  // Format the current time as a string
+  char end_time_str[100];
+  std::strftime(end_time_str, sizeof(end_time_str), "%Y-%m-%d %H:%M:%S", std::localtime(&full_end_time));
+
+  // Print the current time including milliseconds
+  std::cout << "End time with milliseconds: " << end_time_str << "." << end_millis % 1000 << std::endl;
+
+  // Calculate the difference in milliseconds
+  auto duration = end_time - start_time;
+  auto duration_millis = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
+
+  std::cout << "Duration: " << duration_millis << " milliseconds" << std::endl;
+
+
+  // Terminate the device tracking process
+  terminateProcess("device_check.sh");
+  
   cout << "Predicting on test set..." << endl;
 
   // Get predictions on test data points.
   // The original file could be download from
   // https://www.kaggle.com/c/digit-recognizer/data
-  data::Load("../data/fashion-mnist_test.csv", dataset, true);
+  data::Load("./digit-recognizer/test.csv", dataset, true);
   const mat testX = dataset.submat(1, 0, dataset.n_rows - 1, dataset.n_cols - 1)
       / 256.0;
   const mat testY = dataset.row(0);
